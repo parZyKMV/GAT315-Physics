@@ -2,10 +2,15 @@
 #include "resource_dir.h"	// utility header for SearchAndSetResourceDir
 #include <vector>
 #include "raymath.h"
+#include <string>
 
 #include "Random.h"
 #include "Body.h"
 #include "World.h"
+#include "Integration.h"
+#include "Effector.h"
+#include "PointEffector.h"
+#include "Gravitational_Effector.h"
 
 // Moved to Body.h and Body.cpp
 //struct Body
@@ -25,27 +30,17 @@
 //	return GetRandomValue(0, 1000) / 1000.0f;
 //}
 
-// Moved to Body.cpp as Body::AddForce()
+// Moved to Body.cpp as Body::addForce()
 //void addForce(Body& body, Vector2 force)
 //{
 //	body.acceleration += force/body.mass;
 //}
 
-// Moved to Body.cpp as Body::Step()
-//void ExplicitEuler(Body& body, float dt)
-//{
-//	body.position += body.velocity * dt;
-//	body.velocity += body.acceleration * dt;
-//	body.acceleration = { 0,0 };
-//}
+// Moved to Integration.h
+//void ExplicitEuler(Body& body, float dt) { ... }
 
-// Moved to Body.cpp as Body::Step() - we use this one (semi-implicit is more stable)
-//void SemiImplicitEuler(Body& body, float dt)
-//{ 	
-//	body.velocity += body.acceleration * dt;
-//	body.position += body.velocity * dt;
-//	body.acceleration = { 0,0 };
-//}
+// Moved to Integration.h - we use this one (semi-implicit is more stable)
+//void SemiImplicitEuler(Body& body, float dt) { ... }
 
 // Moved to World.h
 //Vector2 gravity{ 0, 100.0f };
@@ -70,11 +65,24 @@ int main()
 	// Load a texture from the resources directory
 	Texture wabbit = LoadTexture("wabbit_alpha.png");
 
+	//SetTargetFPS(10);
+
 	World world;
+	world.gravity = { 0, 0 }; // turn off world gravity so only gravitational attraction between bodies acts
+
+	// Point effector in the center - pushes bodies away within its radius
+	world.AddEffector(new PointEffector({ 400, 400 }, 200.0f, 50000.0f));
+
+	// Gravitational effector - pulls every body toward every other body
+	world.AddEffector(new GravitationalEffector(10000.0f));
+
 	world.bodies.reserve(1000);
 
+	float timeAccum = 0.0f;
+	float fixedTimeStep = 1.0f / 60.0f; // Fixed physics rate for stability
+
 	// game loop
-	while (!WindowShouldClose())		// run the loop until the user presses ESCAPE or presses the Close button on the window
+	while (!WindowShouldClose())
 	{
 		float dt = GetFrameTime();
 
@@ -82,11 +90,21 @@ int main()
 			(IsKeyDown(KEY_LEFT_CONTROL) && IsMouseButtonDown(MOUSE_BUTTON_LEFT)))
 		{
 			Body body;
+
+			// Default spawn is Dynamic. Hold ALT to spawn Kinematic bodies that ignore forces.
+			body.type = (IsKeyDown(KEY_LEFT_ALT)) ? BodyType::Kinematic : BodyType::Dynamic;
+
 			body.position = GetMousePosition();
-			body.acceleration = { 0,0 };
+			body.acceleration = { 0, 0 };
 			body.size = GetRandomFloat(5.0f, 35.0f);
 			body.restitution = GetRandomFloat(0.5f, 1.0f);
-			body.mass = body.size * 10.0f;
+
+			// Mass = size so bigger bodies have stronger gravitational pull
+			body.mass = body.size;
+			body.inverseMass = (body.type == BodyType::Static) ? 0.0f : 1.0f / body.mass;
+
+			body.gravityScale = 1.0f; // full gravity
+			body.damping = 0.2f; // a little drag so bodies slow down over time
 
 			float angle = GetRandomFloat(2.0f * PI);
 			body.velocity = {
@@ -94,6 +112,7 @@ int main()
 				sinf(angle) * GetRandomFloat(50.0f, 350.0f)
 			};
 
+			body.velocity *= 0.001f;
 			// Moved to Random.h as GetRandomFloat(min, max)
 			//Vector2 direction;
 			//direction.x = cosf(angle);
@@ -101,7 +120,7 @@ int main()
 
 			body.color = Color{
 				(unsigned char)GetRandomValue(100, 255),
-				(unsigned char)GetRandomValue(0, 100),
+				(unsigned char)GetRandomValue(0,   100),
 				(unsigned char)GetRandomValue(100, 255),
 				255
 			};
@@ -117,10 +136,16 @@ int main()
 		if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT))
 		{
 			Vector2 mousePos = GetMousePosition();
-			world.ApplyRadialForce(mousePos, 100.0f, -100000.0f);
+			world.ApplyRadialForce(mousePos, 100.0f, 100000.0f);
 		}
 
-		world.Step(dt);
+		// Fixed timestep accumulator - keeps physics stable regardless of frame rate
+		timeAccum += dt;
+		while (timeAccum > fixedTimeStep)
+		{
+			world.Step(fixedTimeStep);
+			timeAccum -= fixedTimeStep;
+		}
 
 		// Moved to World::Step() - world handles integration now
 		//for (auto& body : bodies) SemiImplicitEuler(body, dt);
@@ -128,41 +153,22 @@ int main()
 		// Moved to World::Step() - world handles collisions now
 		//for (auto& body : bodies)
 		//{
-		//	if (body.position.x + body.size > GetScreenWidth())
-		//	{
-		//		body.position.x = GetScreenWidth() - body.size;
-		//		body.velocity.x *= -body.restitution;
-		//	}
-		//	if (body.position.x - body.size < 0)
-		//	{
-		//		body.position.x = body.size;
-		//		body.velocity.x *= -body.restitution;
-		//	}
-		//	if (body.position.y + body.size > GetScreenHeight())
-		//	{
-		//		body.position.y = GetScreenHeight() - body.size;
-		//		body.velocity.y *= -body.restitution;
-		//	}
-		//	if (body.position.y - body.size < 0)
-		//	{
-		//		body.position.y = body.size;
-		//		body.velocity.y *= -body.restitution;
-		//	}
+		//	if (body.position.x + body.size > GetScreenWidth()) ...
 		//}
 
 		// drawing
 		BeginDrawing();
 
-		// Setup the back buffer for drawing (clear color and depth buffers)
 		ClearBackground(BLACK);
 
-		// draw some text using the default font
-		DrawText("Hello Raylib", 200, 200, 20, WHITE);
+		// Show FPS so we can monitor performance
+		std::string text = "FPS: ";
+		text += std::to_string(GetFPS());
+		DrawText(text.c_str(), 200, 200, 20, WHITE);
 
-		// draw our texture to the screen
-		DrawTexture(wabbit, 400, 200, WHITE);
+		//DrawTexture(wabbit, 400, 200, WHITE);
 
-		// Moved to World::Draw() - world draws all bodies now
+		// Moved to World::Draw() - world draws all bodies and effectors now
 		//for (Body& body : bodies)
 		//{
 		//	DrawCircleV(body.position, body.size, body.color);
@@ -175,15 +181,11 @@ int main()
 			DrawCircleLinesV(GetMousePosition(), 100.0f, RED);
 		}
 
-		// end the frame and get ready for the next one  (display frame, poll input, etc...)
 		EndDrawing();
 	}
 
 	// cleanup
-	// unload our texture so it can be cleaned up
 	UnloadTexture(wabbit);
-
-	// destroy the window and cleanup the OpenGL context
 	CloseWindow();
 	return 0;
 }

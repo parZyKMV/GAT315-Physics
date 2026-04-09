@@ -1,19 +1,45 @@
 #include "Body.h"
 #include "raymath.h"
 
-void Body::addForce(Vector2 force)
+void Body::addForce(Vector2 force, ForceMode forceMode)
 {
-    // Newton's second law: a = F / m
-    // Heavier bodies accelerate less from the same force
-    acceleration.x += force.x / mass;
-    acceleration.y += force.y / mass;
+    // Only dynamic bodies react to forces - static and kinematic ignore them
+    if (type != BodyType::Dynamic) return;
+
+    switch (forceMode)
+    {
+    case ForceMode::Default:
+    case ForceMode::Force:
+        // Standard force: scales by inverse mass so heavier bodies accelerate less (F = ma)
+        acceleration.x += force.x * inverseMass;
+        acceleration.y += force.y * inverseMass;
+        break;
+
+    case ForceMode::Impulse:
+        // Instantly changes velocity scaled by inverse mass - good for explosions or jumps
+        velocity.x += force.x * inverseMass;
+        velocity.y += force.y * inverseMass;
+        break;
+
+    case ForceMode::Acceleration:
+        // Adds directly to acceleration regardless of mass - all bodies react equally
+        acceleration.x += force.x;
+        acceleration.y += force.y;
+        break;
+
+    case ForceMode::VelocityChange:
+        // Instantly changes velocity regardless of mass - like teleporting the velocity
+        velocity.x += force.x;
+        velocity.y += force.y;
+        break;
+    }
+    // NOTE: no default apply after the switch - each ForceMode handles it on its own
 }
 
 void Body::Step(float dt)
 {
-    // Semi-implicit Euler: we update velocity first, then use that
-    // updated velocity to move the position. This order matters -
-    // it keeps the simulation more stable than doing it the other way around.
+    // Semi-implicit Euler: update velocity first, then position with the new velocity.
+    // This order keeps the simulation more stable than explicit Euler.
     velocity.x += acceleration.x * dt;
     velocity.y += acceleration.y * dt;
 
