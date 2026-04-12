@@ -54,6 +54,7 @@ void World::UpdateCollisions()
 	contacts.clear();
 	CreateContact(bodies, contacts);
 	SeperateContacts(contacts);
+    ResolveContacts(contacts);
 
     // Bounce bodies off the window walls
     int screenWidth = GetScreenWidth();

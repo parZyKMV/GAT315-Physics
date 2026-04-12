@@ -71,7 +71,7 @@ int main()
 	world.gravity = { 0, 0 }; // turn off world gravity so only gravitational attraction between bodies acts
 
 	// Point effector in the center - pushes bodies away within its radius
-	world.AddEffector(new PointEffector({ 400, 400 }, 200.0f, 50000.0f));
+	//world.AddEffector(new PointEffector({ 400, 400 }, 200.0f, 50000.0f));
 
 	// Gravitational effector - pulls every body toward every other body
 	world.AddEffector(new GravitationalEffector(10000.0f));
@@ -92,12 +92,12 @@ int main()
 			Body body;
 
 			// Default spawn is Dynamic. Hold ALT to spawn Kinematic bodies that ignore forces.
-			body.type = (IsKeyDown(KEY_LEFT_ALT)) ? BodyType::Kinematic : BodyType::Dynamic;
+			body.type = (IsKeyDown(KEY_LEFT_ALT)) ? BodyType::Static : BodyType::Dynamic;
 
 			body.position = GetMousePosition();
 			body.acceleration = { 0, 0 };
 			body.size = GetRandomFloat(5.0f, 35.0f);
-			body.restitution = GetRandomFloat(0.5f, 1.0f);
+			body.restitution = GetRandomFloat(0.0f, 0.0f);
 
 			// Mass = size so bigger bodies have stronger gravitational pull
 			body.mass = body.size;
@@ -136,7 +136,7 @@ int main()
 		if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT))
 		{
 			Vector2 mousePos = GetMousePosition();
-			world.ApplyRadialForce(mousePos, 100.0f, 100000.0f);
+			//world.ApplyRadialForce(mousePos, 100.0f, 100000.0f);
 		}
 
 		// Fixed timestep accumulator - keeps physics stable regardless of frame rate
