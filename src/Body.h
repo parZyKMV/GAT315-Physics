@@ -5,9 +5,9 @@
 
 enum class BodyType
 {
-	Static,
+	Dynamic,
 	Kinematic,
-	Dynamic
+	Static
 };
 
 // Controls how a force is applied to a body

@@ -1,5 +1,5 @@
 #include "raylib.h"
-#include "resource_dir.h"	// utility header for SearchAndSetResourceDir
+#include "resource_dir.h"
 #include <vector>
 #include "raymath.h"
 #include <string>
@@ -7,185 +7,211 @@
 #include "Random.h"
 #include "Body.h"
 #include "World.h"
+#include "world_camera.h"
 #include "Integration.h"
 #include "Effector.h"
+#include "Spring.h"
 #include "PointEffector.h"
 #include "Gravitational_Effector.h"
+#include "area_Effector.h"
+#include "drag_Effector.h"
 
-// Moved to Body.h and Body.cpp
-//struct Body
-//{
-//	Vector2 position;
-//	Vector2 velocity;
-//	Vector2 acceleration;
-//	float mass;
-//	float size;	
-//	float restitution;
-//	Color color;
-//};
+#define RAYGUI_IMPLEMENTATION
+#include "raygui.h"
+#define GUI_PHYSICS_IMPLEMENTATION
+#pragma warning(push)
+#pragma warning(disable: 4576)
+#include "gui_physics.h"
+#pragma warning(pop)
 
-// Moved to Random.h
-//float getRandomFloat()
-//{
-//	return GetRandomValue(0, 1000) / 1000.0f;
-//}
+GuiPhysicsState state;
 
-// Moved to Body.cpp as Body::addForce()
-//void addForce(Body& body, Vector2 force)
-//{
-//	body.acceleration += force/body.mass;
-//}
-
-// Moved to Integration.h
-//void ExplicitEuler(Body& body, float dt) { ... }
-
-// Moved to Integration.h - we use this one (semi-implicit is more stable)
-//void SemiImplicitEuler(Body& body, float dt) { ... }
-
-// Moved to World.h
-//Vector2 gravity{ 0, 100.0f };
+// Both functions must be declared before main so the compiler knows they exist
+void AddBody(World& world, WorldCamera& camera);
+void AddEffector(World& world, WorldCamera& camera);
 
 int main()
 {
-	// Moved to World - world manages the list of bodies now
-	//std::vector<Body> bodies;
-	//bodies.reserve(1000);
+	SetRandomSeed((unsigned int)GetTime());
 
-	SetRandomSeed(GetTime());
-
-	// Tell the window to use vsync and work on high DPI displays
 	SetConfigFlags(FLAG_VSYNC_HINT | FLAG_WINDOW_HIGHDPI);
-
-	// Create the window and OpenGL context
 	InitWindow(1280, 800, "Hello Raylib");
 
-	// Utility function from resource_dir.h to find the resources folder and set it as the current working directory so we can load from it
+	// Get GUI state
+	state = InitGuiPhysics();
+	
+
 	SearchAndSetResourceDir("resources");
 
-	// Load a texture from the resources directory
 	Texture wabbit = LoadTexture("wabbit_alpha.png");
 
-	//SetTargetFPS(10);
-
 	World world;
-	world.gravity = { 0, 0 }; // turn off world gravity so only gravitational attraction between bodies acts
-
-	// Point effector in the center - pushes bodies away within its radius
-	//world.AddEffector(new PointEffector({ 400, 400 }, 200.0f, 50000.0f));
-
-	// Gravitational effector - pulls every body toward every other body
-	world.AddEffector(new GravitationalEffector(10000.0f));
-
+	WorldCamera world_camera(Vector2{ GetScreenWidth() / 2.0f, GetScreenHeight() / 2.0f }, 500);
+	world.SetBounds(world_camera.ScreenToWorld({ 0, (float)GetScreenHeight() }), world_camera.ScreenToWorld({ (float)GetScreenWidth(), 0 }));
 	world.bodies.reserve(1000);
 
-	float timeAccum = 0.0f;
-	float fixedTimeStep = 1.0f / 60.0f; // Fixed physics rate for stability
 
-	// game loop
+	Body* selectedBody = nullptr;
+	Body* connectedBody = nullptr;
+
+	float timeAccum = 0.0f;
+	float fixedTimeStep = 1.0f / 60.0f;
+
 	while (!WindowShouldClose())
 	{
-		float dt = GetFrameTime();
+		float dt = fminf(GetFrameTime(), 0.1f);
 
-		if (IsMouseButtonPressed(0) ||
-			(IsKeyDown(KEY_LEFT_CONTROL) && IsMouseButtonDown(MOUSE_BUTTON_LEFT)))
+		if (IsKeyPressed(KEY_SPACE)) state.SimulateActive = !state.SimulateActive;
+		if (IsKeyPressed(KEY_TAB))   state.PhysicsPanelActive = !state.PhysicsPanelActive;
+
+		// GUI panel occupies anchor02 + (0,0) to (304, 664) - matches InitGuiPhysics values
+		bool mouseOverGui = state.PhysicsPanelActive &&
+			CheckCollisionPointRec(GetMousePosition(), Rectangle{ 24, 40, 304, 664 });
+
+		// gravity is a plain member variable, not a static method
+		world.gravity = { 0, state.GravityValue };
+
+		// Spawn body or effector only when NOT clicking over the GUI panel
+		if (!mouseOverGui)
 		{
-			Body body;
+			if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) ||
+				(IsKeyDown(KEY_LEFT_CONTROL) && IsMouseButtonDown(MOUSE_BUTTON_LEFT)))
+			{
+				if (IsKeyDown(KEY_LEFT_SHIFT))
+					AddEffector(world,world_camera); // Hold Shift + Click to place an effector
+				else
+					AddBody(world,world_camera);     // Normal click spawns a body
+			}
 
-			// Default spawn is Dynamic. Hold ALT to spawn Kinematic bodies that ignore forces.
-			body.type = (IsKeyDown(KEY_LEFT_ALT)) ? BodyType::Static : BodyType::Dynamic;
+			if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT))
+			{
+				selectedBody = world.GetBodyInteract(GetMousePosition());
+			}
+			if (selectedBody)
+			{
+				if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT) && IsKeyDown(KEY_LEFT_CONTROL))
+				{
+					Vector2 position = world_camera.ScreenToWorld(GetMousePosition());
+					Vector2 force = Spring::GetSpringForce(position, selectedBody->position, 1.0f, 1.0f);
+					selectedBody->addForce(force);
 
-			body.position = GetMousePosition();
-			body.acceleration = { 0, 0 };
-			body.size = GetRandomFloat(5.0f, 35.0f);
-			body.restitution = GetRandomFloat(0.0f, 0.0f);
-
-			// Mass = size so bigger bodies have stronger gravitational pull
-			body.mass = body.size;
-			body.inverseMass = (body.type == BodyType::Static) ? 0.0f : 1.0f / body.mass;
-
-			body.gravityScale = 1.0f; // full gravity
-			body.damping = 0.2f; // a little drag so bodies slow down over time
-
-			float angle = GetRandomFloat(2.0f * PI);
-			body.velocity = {
-				cosf(angle) * GetRandomFloat(50.0f, 350.0f),
-				sinf(angle) * GetRandomFloat(50.0f, 350.0f)
-			};
-
-			body.velocity *= 0.001f;
-			// Moved to Random.h as GetRandomFloat(min, max)
-			//Vector2 direction;
-			//direction.x = cosf(angle);
-			//direction.y = sinf(angle);
-
-			body.color = Color{
-				(unsigned char)GetRandomValue(100, 255),
-				(unsigned char)GetRandomValue(0,   100),
-				(unsigned char)GetRandomValue(100, 255),
-				255
-			};
-
-			world.AddBody(body);
+					DrawLineV(position, selectedBody->position, YELLOW);
+				}
+			}
 		}
-
-		// Moved to World::Step() - world handles gravity and integration now
-		//for (auto& body : bodies) body.acceleration = Vector2{ 0,0 };
-		//for (auto& body : bodies) addForce(body, (gravity * 100.0f));
 
 		// Apply radial force before stepping so physics reacts this frame
 		if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT))
 		{
 			Vector2 mousePos = GetMousePosition();
-			//world.ApplyRadialForce(mousePos, 100.0f, 100000.0f);
+			world.ApplyRadialForce(mousePos, 100.0f, 100000.0f);
 		}
 
 		// Fixed timestep accumulator - keeps physics stable regardless of frame rate
-		timeAccum += dt;
-		while (timeAccum > fixedTimeStep)
+		if (state.SimulateActive)
 		{
-			world.Step(fixedTimeStep);
-			timeAccum -= fixedTimeStep;
+			timeAccum += dt;
+			while (timeAccum > fixedTimeStep)
+			{
+				world.Step(fixedTimeStep);
+				timeAccum -= fixedTimeStep;
+			}
 		}
 
-		// Moved to World::Step() - world handles integration now
-		//for (auto& body : bodies) SemiImplicitEuler(body, dt);
-
-		// Moved to World::Step() - world handles collisions now
-		//for (auto& body : bodies)
-		//{
-		//	if (body.position.x + body.size > GetScreenWidth()) ...
-		//}
-
-		// drawing
 		BeginDrawing();
-
 		ClearBackground(BLACK);
 
-		// Show FPS so we can monitor performance
-		std::string text = "FPS: ";
-		text += std::to_string(GetFPS());
-		DrawText(text.c_str(), 200, 200, 20, WHITE);
+		// Show FPS and body count
+		std::string text = "FPS: " + std::to_string(GetFPS());
+		DrawText(text.c_str(), 10, 10, 20, WHITE);
 
-		//DrawTexture(wabbit, 400, 200, WHITE);
+		std::string bodyCount = "Bodies: " + std::to_string(world.bodies.size());
+		DrawText(bodyCount.c_str(), 10, 35, 20, WHITE);
 
-		// Moved to World::Draw() - world draws all bodies and effectors now
-		//for (Body& body : bodies)
-		//{
-		//	DrawCircleV(body.position, body.size, body.color);
-		//}
+		world_camera.Begin();
 		world.Draw();
+		world_camera.End();
 
-		// Draw the repulsion radius while right click is held - must be inside BeginDrawing()
-		if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT))
+
+		if (selectedBody)
 		{
-			DrawCircleLinesV(GetMousePosition(), 100.0f, RED);
+			DrawCircleLinesV(selectedBody->position, selectedBody->size + 5, YELLOW);
+			 if (connectedBody)
+			 {
+				 DrawLineV(selectedBody->position, connectedBody->position, YELLOW);
+			 }
 		}
+
+		GuiPhysics(&state);
+
+		// Draw the repulsion radius while right click is held - inside BeginDrawing
+		if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT))
+			DrawCircleLinesV(GetMousePosition(), 100.0f, RED);
 
 		EndDrawing();
 	}
 
-	// cleanup
 	UnloadTexture(wabbit);
 	CloseWindow();
 	return 0;
+}
+
+void AddBody(World& world,WorldCamera& camera)
+{
+	Body body;
+
+	body.type = (BodyType)state.BodyTypeActive;
+	body.position = camera.ScreenToWorld(GetMousePosition());
+	body.acceleration = { 0, 0 };
+	body.size = state.BodySizeValue;
+	body.restitution = state.BodyRestitutionValue;
+
+	// Mass = size * multiplier so bigger bodies have stronger gravitational pull
+	body.mass = body.size * state.BodyMassValue;
+	body.inverseMass = (body.type == BodyType::Static) ? 0.0f : 1.0f / body.mass;
+
+	body.gravityScale = 1.0f;
+	body.damping = state.BodyDampingValue;
+
+	float angle = GetRandomFloat(0.0f, 2.0f * PI);
+	body.velocity = {
+		cosf(angle) * GetRandomFloat(50.0f, 350.0f),
+		sinf(angle) * GetRandomFloat(50.0f, 350.0f)
+	};
+
+	body.color = Color{
+		(unsigned char)GetRandomValue(100, 255),
+		(unsigned char)GetRandomValue(0,   100),
+		(unsigned char)GetRandomValue(100, 255),
+		255
+	};
+
+	world.AddBody(body);
+}
+
+void AddEffector(World& world,WorldCamera& camera)
+{
+	Effector* effector = nullptr;
+	Vector2 mousePos = camera.ScreenToWorld(GetMousePosition());
+
+	switch (state.EffectorTypeActive)
+	{
+	case 0: // Point Effector - pushes/pulls bodies radially from a point
+		effector = new PointEffector(mousePos, state.EffectorSizeValue, state.EffectorForceValue);
+		break;
+	case 1: // Gravitational Effector - attracts bodies toward each other
+		effector = new GravitationalEffector(mousePos, state.EffectorSizeValue, state.EffectorForceValue);
+		break;
+	case 2: // Area Effector - applies constant directional force inside a region
+		effector = new AreaEffector(mousePos, state.EffectorSizeValue, state.EffectorForceValue, state.EffectorAngleValue);
+		break;
+	case 3: // Drag Effector - slows bodies down inside the region
+		effector = new DragEffector(mousePos, state.EffectorSizeValue, state.EffectorForceValue);
+		break;
+	default:
+		break;
+	}
+
+	if (effector != nullptr)
+		world.AddEffector(effector);
 }

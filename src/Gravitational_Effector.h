@@ -4,10 +4,13 @@
 class GravitationalEffector : public Effector
 {
 public:
-	// Constructor name matches the class name
-	GravitationalEffector(float strength) : strength(strength) {}
+	// Takes position and size so it can be placed anywhere in the scene
+	GravitationalEffector(Vector2 position, float size, float strength)
+		: Effector(position, size), strength(strength)
+	{
+	}
 
-	// Applies gravitational attraction between every pair of bodies
+	// Attracts every pair of bodies toward each other based on their masses
 	void Apply(std::vector<Body>& bodies) override;
 
 private:

@@ -14,7 +14,20 @@ void World::AddEffector(Effector* effector)
     effectors.push_back(effector);
 }
 
+Vector2 World::gravity{ 0,9.0f };
 
+Body* World::GetBodyInteract(const Vector2& position)
+{
+    for(auto& body : bodies)
+    {
+        if(CheckCollisionPointCircle(position,body.position,body.size))
+        {
+            return &body;
+		}
+    }
+
+    return nullptr;
+}
 
 void World::Step(float dt)
 {
@@ -30,13 +43,19 @@ void World::Step(float dt)
     // Force effectors - must run before integration so forces affect this frame
     for (auto& effector : effectors) effector->Apply(bodies);
 
+	for (auto& spring : springs) spring->Apply(100.0f);
+
     // Integrate only dynamic bodies - static and kinematic don't move on their own
     for (auto& body : bodies)
     {
         if (body.type == BodyType::Dynamic) SemiImplicitEuler(body, dt);
     }
 
-	UpdateCollisions();
+    for (int i = 0; i < 4; i++)
+    {
+	    UpdateCollisions();
+
+    }
     
 }
 
@@ -63,25 +82,25 @@ void World::UpdateCollisions()
     for (auto& body : bodies)
     {
         // Right wall
-        if (body.position.x + body.size > screenWidth)
+        if (body.position.x + body.size > boundsMax.x)
         {
             body.position.x = screenWidth - body.size;
             body.velocity.x *= -body.restitution;
         }
         // Left wall
-        if (body.position.x - body.size < 0)
+        if (body.position.x - body.size < boundsMin.x)
         {
             body.position.x = body.size;
             body.velocity.x *= -body.restitution;
         }
         // Bottom wall
-        if (body.position.y + body.size > screenHeight)
+        if (body.position.y + body.size > boundsMax.y)
         {
             body.position.y = screenHeight - body.size;
             body.velocity.y *= -body.restitution;
         }
         // Top wall
-        if (body.position.y - body.size < 0)
+        if (body.position.y - body.size < boundsMin.y)
         {
             body.position.y = body.size;
             body.velocity.y *= -body.restitution;

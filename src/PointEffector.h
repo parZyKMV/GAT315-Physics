@@ -5,8 +5,8 @@ class PointEffector : public Effector
 {
 public:
 	PointEffector(Vector2 position, float size, float forceMagnitude)
-		: position{ position },
-		size{ size },
+		:
+		Effector(position, size),
 		forceMagnitude{ forceMagnitude }
 	{}
 
@@ -17,7 +17,6 @@ public:
 	void Draw() override;
 
 private:
-	Vector2 position;
-	float size;
+	
 	float forceMagnitude;
 };
